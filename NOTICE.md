@@ -5,7 +5,7 @@
 ### Projet
 
 **mindoscope**  
-Version 1.0.0 - 17 novembre 2026
+Version 1.1.0 - 19 novembre 2026
 
 Ce programme fait partie d’**Eigrutel Lab - Atelier d’outils libres pour la bande dessinée**.
 
@@ -77,7 +77,7 @@ Consulter les textes officiels des licences depuis les liens de LICENSE.md.
 ### Project
 
 **mindoscope**  
-Version 1.0.0 - 17 November 2026
+Version 1.1.0 - 19 November 2026
 
 This program is part of **Eigrutel Lab - Free Tools Workshop for Comics**.
 

@@ -3,8 +3,8 @@
 Eigrutel Lab - Atelier d'outils libres pour la bande dessinée
 Programme conçu et développé par Simon Léturgie dans le cadre d'Eigrutel BD Academy.
 Nom : mindoscope
-Version : 1.0.0
-Date : 17-11-2026
+Version : 1.1.0
+Date : 19-11-2026
 
 Code : GNU AGPL v3.0 ou version ultérieure.
 Documentation et modèles : CC BY-SA 4.0, sauf mention contraire.
@@ -354,6 +354,10 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         min-height: 22px;
         border-radius: 3px;
         white-space: pre-wrap;
+        overflow-wrap: normal;
+        word-break: normal;
+        hyphens: none;
+        flex-shrink: 0;
       }
       .node textarea:focus-visible {
         outline: none;
@@ -2565,6 +2569,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
       #new-blank,
       #crop-apply,
       #defaults-apply,
+      #import-confirm,
       #select-cells[aria-pressed="true"],
       .map-locked #map-lock {
         background: #a63d40 !important;
@@ -2896,7 +2901,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             </button>
           </div>
           <div class="topright">
-            <span class="badge">v1.0.0</span
+            <span class="badge">v1.1.0</span
             ><button
               class="icon plain"
               id="theme"
@@ -3757,14 +3762,43 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           data-i="resetAll"
         ></button>
       </div>
+      <h3 data-i="mapOrder">Ordre des cartes</h3>
+      <p data-i="mapOrderHint"></p>
+      <div id="map-order-list"></div>
     </dialog>
 
-    <input
-      type="file"
-      id="file-input"
-      accept=".mindo,.html,.htm,text/html,.md,.markdown,.json,.mindmap,.mindmaps,text/markdown,application/json"
-      hidden
-    />
+    <dialog class="modal" id="import-dialog">
+      <h2 data-i="importTitle">Importer des cartes</h2>
+      <p id="import-summary"></p>
+      <label for="import-mode" data-i="importAction">Choisir une action</label>
+      <select id="import-mode" style="width: 100%; margin: 12px 0">
+        <option value="add" data-i="importAdd">
+          Ajouter aux cartes présentes
+        </option>
+        <option value="replace" data-i="importReplace">
+          Remplacer toutes les cartes présentes
+        </option>
+      </select>
+      <p data-i="importWarning">
+        Remplacer retire les cartes présentes de cet appareil. Sauvegarder
+        celles à conserver avant de continuer.
+      </p>
+      <label class="check-row" id="import-settings-row"
+        ><input type="checkbox" id="import-settings" /><span
+          data-i="importSettings"
+          >Reprendre les réglages du fichier (langue, apparence et styles par
+          défaut)</span
+        ></label
+      >
+      <div class="actions">
+        <button class="btn" data-close="import-dialog" data-i="cancel">
+          Annuler</button
+        ><button class="btn primary" id="import-confirm" data-i="importConfirm">
+          Importer
+        </button>
+      </div>
+    </dialog>
+    <input type="file" id="file-input" hidden />
     <div id="toast" class="toast" hidden role="status">
       <span id="toast-text"></span
       ><button id="toast-undo" data-i="undo" hidden>Annuler</button>
@@ -3773,7 +3807,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
       <h2 data-i="help">Mode d’emploi</h2>
       <div id="help-text"></div>
       <p class="about">
-        mindoscope · 1.0.0 · 17-11-2026<br /><a
+        mindoscope · 1.1.0 · 19-11-2026<br /><a
           href="https://www.gnu.org/licenses/agpl-3.0.html"
           target="_blank"
           rel="noopener"
@@ -3979,10 +4013,43 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         // The document is independent of the view for future integration into Characters.
         // Les identifiants de stockage restent stables pour retrouver les anciennes cartes.
         // Conserver APP et KEY pour retrouver les données des versions précédentes.
-        // L’extension .mindo désigne une carte ou une collection JSON, détectée par son contenu.
-        const VERSION = "1.0.0",
+        // L’extension .json désigne une carte ou une collection JSON, détectée par son contenu.
+        const VERSION = "1.1.0",
           APP = "eigrutel-character-mindmap",
           KEY = "eigrutel-character-mindmap-v1";
+        // Embedded documents belong to Projets. Never read or write standalone storage.
+        const projectMode =
+          new URLSearchParams(location.search).get("projets") === "1" &&
+          window.parent !== window;
+        const preferenceStore = {
+          getItem: (key) => (projectMode ? null : localStorage.getItem(key)),
+          setItem: (key, value) => {
+            if (!projectMode) localStorage.setItem(key, value);
+          },
+          removeItem: (key) => {
+            if (!projectMode) localStorage.removeItem(key);
+          },
+        };
+        const projectBridge = {
+          session: "",
+          ready: false,
+          loading: false,
+          pending: new Set(),
+        };
+        const projectTasks = new Set();
+        function projectPost(type, extra = {}) {
+          if (!projectMode) return;
+          window.parent.postMessage(
+            {
+              channel: "eigrutel-projets-v1",
+              appId: "mindoscope",
+              type,
+              initId: projectBridge.session,
+              ...extra,
+            },
+            location.origin,
+          );
+        }
         const COLORS = [
           "#bf8a40",
           "#5a8e93",
@@ -4324,7 +4391,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         let language = "fr",
           theme = "day";
         try {
-          const p = JSON.parse(localStorage.getItem(KEY + "-prefs") || "{}");
+          const p = JSON.parse(preferenceStore.getItem(KEY + "-prefs") || "{}");
           language = p.language === "en" ? "en" : "fr";
           theme = p.theme === "night" ? "night" : "day";
         } catch {}
@@ -4352,6 +4419,37 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           dirUp: "↑ Upwards",
           dirDown: "↓ Downwards",
         });
+        Object.assign(I.fr, {
+          importTitle: "Importer des cartes",
+          importAction: "Choisir une action",
+          importAdd: "Ajouter aux cartes présentes",
+          importReplace: "Remplacer toutes les cartes présentes",
+          importWarning:
+            "Remplacer retire les cartes présentes de cet appareil. Sauvegarder celles à conserver avant de continuer.",
+          importSettings:
+            "Reprendre les réglages du fichier (langue, apparence et styles par défaut)",
+          importConfirm: "Importer",
+          mapOrder: "Ordre des cartes",
+          mapOrderHint:
+            "Déplacer les cartes avec les flèches, puis appliquer les réglages.",
+          mapUp: "Monter la carte",
+          mapDown: "Descendre la carte",
+        });
+        Object.assign(I.en, {
+          importTitle: "Import maps",
+          importAction: "Choose an action",
+          importAdd: "Add to existing maps",
+          importReplace: "Replace all existing maps",
+          importWarning:
+            "Replacing removes existing maps from this device. Save any maps you want to keep before continuing.",
+          importSettings:
+            "Restore file settings (language, appearance and default styles)",
+          importConfirm: "Import",
+          mapOrder: "Map order",
+          mapOrderHint: "Move maps with the arrows, then apply settings.",
+          mapUp: "Move map up",
+          mapDown: "Move map down",
+        });
         function validFontKey(k) {
           return (
             typeof k === "string" &&
@@ -4372,11 +4470,11 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         let fontCatalog = [];
         try {
           fontCatalog = validateFonts(
-            JSON.parse(localStorage.getItem(KEY + "-fonts") || "[]"),
+            JSON.parse(preferenceStore.getItem(KEY + "-fonts") || "[]"),
           );
         } catch {}
         let defaultSettings = {
-          branchStyle: "taper",
+          branchStyle: "solid",
           levels: clone(INITIAL_LEVELS),
           canvasBackground: "",
           enableThirdView: false,
@@ -4385,7 +4483,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         };
         try {
           const saved = JSON.parse(
-            localStorage.getItem(KEY + "-defaults") || "null",
+            preferenceStore.getItem(KEY + "-defaults") || "null",
           );
           if (saved) {
             defaultSettings.enableThirdView = saved.enableThirdView === true;
@@ -4410,6 +4508,62 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
               defaultSettings.branchStyle = saved.branchStyle;
           }
         } catch {}
+        function settingsSnapshot() {
+          return { ...clone(defaultSettings), language, theme };
+        }
+        function validateSettings(value) {
+          if (value === undefined) return null;
+          if (!value || typeof value !== "object") throw Error("settings");
+          const result = factorySettings();
+          if (
+            ![
+              "solid",
+              "dashed",
+              "bold",
+              "taper",
+              "widen",
+              "arrow-parent",
+              "arrow-child",
+              "arrow-both",
+            ].includes(value.branchStyle)
+          )
+            throw Error("branch style");
+          result.branchStyle = value.branchStyle;
+          result.levels = validateTypography(value.levels);
+          if (
+            value.canvasBackground &&
+            !/^#[a-f0-9]{6}$/i.test(value.canvasBackground)
+          )
+            throw Error("background");
+          result.canvasBackground = value.canvasBackground || "";
+          for (const key of [
+            "enableThirdView",
+            "inheritOnMove",
+            "inheritMoveTypography",
+          ])
+            result[key] = value[key] === true;
+          result.language = value.language === "en" ? "en" : "fr";
+          result.theme = value.theme === "night" ? "night" : "day";
+          return result;
+        }
+        function applyImportedSettings(settings) {
+          if (!settings) return;
+          const { language: lang, theme: mode, ...defaults } = settings;
+          defaultSettings = clone(defaults);
+          language = lang;
+          theme = mode;
+          try {
+            preferenceStore.setItem(
+              KEY + "-defaults",
+              JSON.stringify(defaultSettings),
+            );
+            preferenceStore.setItem(
+              KEY + "-prefs",
+              JSON.stringify({ language, theme }),
+            );
+          } catch {}
+          translate();
+        }
         function validateTypography(value) {
           if (!Array.isArray(value) || value.length !== 5)
             throw Error("typography");
@@ -4517,6 +4671,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           return {
             app: APP,
             kind: "map-collection",
+            settings: settingsSnapshot(),
             schema: 1,
             activeId: activeMapId,
             maps: maps.map((m) => ({ id: m.id, data: clone(m.data) })),
@@ -4547,7 +4702,11 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             return { id: entry.id, data: validate(entry.data) };
           });
           if (!ids.has(input.activeId)) throw Error("active map");
-          return { maps: result, activeId: input.activeId };
+          return {
+            maps: result,
+            activeId: input.activeId,
+            settings: validateSettings(input.settings),
+          };
         }
         function rememberMapSession() {
           syncActiveMap();
@@ -4927,7 +5086,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
                 t("allFileName") +
                 "-" +
                 new Date().toISOString().slice(0, 10) +
-                ".mindo",
+                ".json",
             );
             toast(t("allSaved"));
             persist();
@@ -4938,7 +5097,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           }
         }
         function appendCollection(restored) {
-          rememberMapSession();
+          if (maps.length) rememberMapSession();
           const used = new Set(maps.map((m) => m.id)),
             remap = new Map();
           const added = restored.maps.map((entry) => {
@@ -5772,22 +5931,18 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         function getNode(nid) {
           return doc.nodes.find((n) => n.id === nid);
         }
+        // Wrap at spaces only; widen the cell for an unbroken word.
         function wrapText(text, maxWidth, font) {
           measure.font = font;
           const lines = [];
           for (const raw of String(text || "").split("\n")) {
             let line = "";
-            for (const char of Array.from(raw)) {
-              if (measure.measureText(line + char).width > maxWidth && line) {
-                let cut = line.lastIndexOf(" ");
-                if (cut > 0 && char !== " ") {
-                  lines.push(line.slice(0, cut));
-                  line = line.slice(cut + 1) + char;
-                } else {
-                  lines.push(line);
-                  line = char === " " ? "" : char;
-                }
-              } else line += char;
+            for (const word of raw.trim().split(/\s+/)) {
+              const candidate = line ? line + " " + word : word;
+              if (line && measure.measureText(candidate).width > maxWidth) {
+                lines.push(line);
+                line = word;
+              } else line = candidate;
             }
             lines.push(line);
           }
@@ -5802,7 +5957,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           const text = n.text || (root ? t("subject") : ""),
             typeScale = Math.max(1, style.fontSize / 20),
             maxWidth =
-              (root ? 174 : organic ? 236 : Math.max(140, imagePx)) * typeScale;
+              Math.max(root ? 220 : organic ? 236 : 220, imagePx) * typeScale;
           const lines = wrapText(text, maxWidth, font),
             lineHeight = root
               ? Math.ceil(style.fontSize * 1.3)
@@ -5813,14 +5968,11 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
               Math.max(...lines.map((line) => measure.measureText(line).width)),
             ),
             width = organic
-              ? Math.max(
-                  n.image ? imagePx + 24 : 60,
-                  Math.min(260 * typeScale, measuredWidth + 26),
-                )
+              ? Math.max(n.image ? imagePx + 24 : 60, measuredWidth + 32)
               : Math.max(
                   root ? 178 : 192,
-                  measuredWidth + 36,
-                  root ? 178 : imagePx + 36,
+                  measuredWidth + 56,
+                  root ? 178 : imagePx + 48,
                 );
           return {
             w: width,
@@ -5834,7 +5986,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             textHeight,
             lineHeight,
             imagePx,
-            textWidth: organic ? width - 24 : width - 36,
+            textWidth: organic ? width - 24 : width - 48,
           };
         }
         // Arbre bilatéral : l’espace d’un sous-arbre dépend de ses descendants.
@@ -6568,7 +6720,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
               (el.querySelector("textarea").readOnly = mapLocked || clean),
           );
         }
-        function setViewMode(mode, refit = true) {
+        function setViewMode(mode, refit = false) {
           viewMode = mode;
           document.activeElement?.blur();
           applyViewMode();
@@ -6579,9 +6731,9 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         }
         // Mode d’emploi centralisé : maintenir les deux langues ici, sans remplacements successifs.
         I.fr.helpBody =
-          "<ol><li><strong>Créer et retrouver une carte.</strong> Utiliser « Nouvelle carte », saisir un titre puis choisir « Créer la carte ». Passer d’une carte à l’autre avec le menu des titres. Utiliser le dossier pour ouvrir un fichier sans remplacer les cartes déjà présentes.</li><li><strong>Ajouter des cellules.</strong> Utiliser le + d’une cellule pour ajouter un enfant et reprendre le fond, l’opacité et le trait du parent. Conserver la typographie du niveau. Utiliser « + Fiche » pour créer une cellule non reliée. Toucher le texte pour écrire ; ouvrir la fiche jaune pour régler la cellule et ses notes.</li><li><strong>Choisir une disposition.</strong> Ouvrir le bouton des directions pour choisir le placement libre, gauche et droite, droite, gauche, haut ou bas. Conserver une disposition différente pour chaque carte.</li><li><strong>Déplacer en disposition automatique.</strong> Glisser la poignée à six points, ou le fond de la cellule en vue sans commandes. Déposer au centre d’une autre cellule pour changer de parent. Déposer près du bord supérieur ou inférieur pour réordonner ; utiliser les bords gauche et droit en disposition verticale. Déplacer toute la branche avec ses descendants.</li><li><strong>Déplacer librement.</strong> Choisir le placement libre puis glisser une cellule ou sa poignée. Cocher la case près des directions pour entraîner les descendants, même repliés ; la décocher pour déplacer uniquement la cellule. Changer de parent depuis la fiche de cellule. Activer, dans les réglages, l’adaptation au style du nouveau parent, avec ou sans typographie.</li><li><strong>Naviguer et changer de vue.</strong> Glisser le fond pour déplacer la vue. Pincer avec deux doigts, ou utiliser + et −, pour zoomer. Choisir « Tout voir » pour recadrer la carte. Utiliser l’œil souligné de rouge pour alterner entre les deux vues ; activer la troisième vue compacte dans les réglages si nécessaire.</li><li><strong>Régler les images.</strong> Ajouter une image avec son icône. Déplacer et zoomer dans la fenêtre de cadrage, puis valider. Choisir « Image entière » pour rétablir le cadrage. Régler la taille de l’image dans la fiche de cellule. Utiliser un PNG pour conserver sa transparence.</li><li><strong>Régler les styles.</strong> Ouvrir la fiche jaune pour choisir la police, la taille, l’alignement et les couleurs. Régler l’opacité du fond ou masquer le contour. Appliquer le style aux descendants avec « Typos comprises » ou « Typos non comprises ». Régler la typographie des niveaux 1 à 5 dans le menu général. Importer ou retirer une police personnalisée depuis ce menu.</li><li><strong>Modifier plusieurs éléments.</strong> Activer « Sélectionner », choisir plusieurs cellules puis « Modifier ». Cocher uniquement les propriétés à appliquer. Choisir « Modifier les liens » pour sélectionner des liens, éventuellement tous, puis appliquer un style de trait. Terminer la sélection pour reprendre l’édition habituelle.</li><li><strong>Créer et préciser les liens.</strong> Choisir « + Lien », sélectionner le parent puis l’enfant, puis valider. Relier une cellule à plusieurs autres si nécessaire. Toucher un trait pour régler son intitulé, ses précisions, son image et son style. Utiliser le lien principal pour le repli et le déplacement de la branche ; conserver les autres comme liens supplémentaires. Retrouver les numéros techniques dans les notes du PDF.</li><li><strong>Ajouter des formes.</strong> Utiliser « + Forme » pour ajouter un rectangle, un ovale, un nuage ou une accolade. Glisser la forme pour la déplacer, utiliser ses poignées pour la déformer et la poignée ronde pour la tourner. Régler sa couleur, son opacité et sa position devant ou derrière les autres formes, puis valider. Toucher une forme pour la modifier.</li><li><strong>Replier et rechercher.</strong> Utiliser le chevron d’une cellule pour masquer ou afficher ses descendants. Saisir une recherche pour retrouver des textes, notes et précisions de liens dans l’ensemble des cartes. Utiliser la loupe du résultat pour rejoindre l’élément concerné.</li><li><strong>Verrouiller et annuler.</strong> Fermer le cadenas pour empêcher les modifications tout en conservant la navigation, les changements de vue, les sauvegardes et les exports. Utiliser Annuler ou Rétablir dans la barre supérieure pour revenir sur une modification. Appuyer sur Échap pour annuler un déplacement en cours.</li><li><strong>Copier et supprimer des cartes.</strong> Utiliser l’icône de sortie d’une cellule pour créer une carte à partir de celle-ci, avec ou sans descendants. Utiliser l’icône d’insertion pour copier une autre carte sous une cellule. Conserver des copies indépendantes. Utiliser la corbeille de la barre supérieure pour supprimer une carte après confirmation, puis Annuler ou « Restaurer la dernière carte supprimée » si nécessaire.</li><li><strong>Sauvegarder et importer.</strong> Choisir la disquette, puis sauvegarder la carte active ou toutes les cartes dans un fichier .mindo, images et polices comprises. Conserver régulièrement une copie en dehors du navigateur, notamment avant d’effacer ses données. Ouvrir aussi les anciens fichiers .mindmap et .mindmaps, les fichiers JSON d’Univers ou de Pop, les diaporamas HTML d’Univers et les fichiers Markdown. Importer plusieurs cartes d’Univers comme cartes distinctes.</li><li><strong>Exporter.</strong> Choisir « PDF », régler le format et l’orientation, puis créer et télécharger le fichier. Reprendre la vue et le fond de la carte, y compris en mode nocturne. Cocher les notes de cellules ou de liens pour ajouter les éléments visibles contenant du texte ou une image ; exclure les descendants masqués par une branche repliée. Utiliser les URL cliquables du PDF. Ouvrir le menu général puis « Markdown » pour exporter les textes hiérarchisés sans les images.</li><li><strong>Réinitialiser.</strong> Utiliser « Réinitialiser tous les réglages » pour restaurer les préférences et les fonds sans supprimer les cartes. Utiliser « Tout remettre à zéro » pour effacer également les cartes et les polices importées, puis confirmer. Sauvegarder les cartes à conserver avant cette opération.</li><li><strong>Utiliser le clavier.</strong> Appuyer sur Entrée pour ajouter un enfant pendant la saisie d’une cellule ; utiliser Maj + Entrée pour insérer une ligne. Hors d’un champ texte, utiliser Ctrl / ⌘ + Z pour annuler.</li></ol>";
+          "<ol><li><strong>Créer et retrouver une carte.</strong> Utiliser « Nouvelle carte », saisir un titre puis choisir « Créer la carte ». Passer d’une carte à l’autre avec le menu des titres. Utiliser le dossier pour ouvrir un fichier, puis choisir d’ajouter les cartes ou de remplacer les cartes présentes.</li><li><strong>Ajouter des cellules.</strong> Utiliser le + d’une cellule pour ajouter un enfant et reprendre le fond, l’opacité et le trait du parent. Conserver la typographie du niveau. Utiliser « + Fiche » pour créer une cellule non reliée. Toucher le texte pour écrire ; ouvrir la fiche jaune pour régler la cellule et ses notes.</li><li><strong>Choisir une disposition.</strong> Ouvrir le bouton des directions pour choisir le placement libre, gauche et droite, droite, gauche, haut ou bas. Conserver une disposition différente pour chaque carte.</li><li><strong>Déplacer en disposition automatique.</strong> Glisser la poignée à six points, ou le fond de la cellule en vue sans commandes. Déposer au centre d’une autre cellule pour changer de parent. Déposer près du bord supérieur ou inférieur pour réordonner ; utiliser les bords gauche et droit en disposition verticale. Déplacer toute la branche avec ses descendants.</li><li><strong>Déplacer librement.</strong> Choisir le placement libre puis glisser une cellule ou sa poignée. Cocher la case près des directions pour entraîner les descendants, même repliés ; la décocher pour déplacer uniquement la cellule. Changer de parent depuis la fiche de cellule. Activer, dans les réglages, l’adaptation au style du nouveau parent, avec ou sans typographie.</li><li><strong>Naviguer et changer de vue.</strong> Glisser le fond pour déplacer la vue. Pincer avec deux doigts, ou utiliser + et −, pour zoomer. Choisir « Tout voir » pour recadrer la carte. Utiliser l’œil souligné de rouge pour alterner entre les deux vues ; activer la troisième vue compacte dans les réglages si nécessaire.</li><li><strong>Régler les images.</strong> Ajouter une image avec son icône. Déplacer et zoomer dans la fenêtre de cadrage, puis valider. Choisir « Image entière » pour rétablir le cadrage. Régler la taille de l’image dans la fiche de cellule. Utiliser un PNG pour conserver sa transparence.</li><li><strong>Régler les styles.</strong> Ouvrir la fiche jaune pour choisir la police, la taille, l’alignement et les couleurs. Régler l’opacité du fond ou masquer le contour. Appliquer le style aux descendants avec « Typos comprises » ou « Typos non comprises ». Régler la typographie des niveaux 1 à 5 dans le menu général. Importer ou retirer une police personnalisée depuis ce menu.</li><li><strong>Modifier plusieurs éléments.</strong> Activer « Sélectionner », choisir plusieurs cellules puis « Modifier ». Cocher uniquement les propriétés à appliquer. Choisir « Modifier les liens » pour sélectionner des liens, éventuellement tous, puis appliquer un style de trait. Terminer la sélection pour reprendre l’édition habituelle.</li><li><strong>Créer et préciser les liens.</strong> Choisir « + Lien », sélectionner le parent puis l’enfant, puis valider. Relier une cellule à plusieurs autres si nécessaire. Toucher un trait pour régler son intitulé, ses précisions, son image et son style. Utiliser le lien principal pour le repli et le déplacement de la branche ; conserver les autres comme liens supplémentaires. Retrouver les numéros techniques dans les notes du PDF.</li><li><strong>Ajouter des formes.</strong> Utiliser « + Forme » pour ajouter un rectangle, un ovale, un nuage ou une accolade. Glisser la forme pour la déplacer, utiliser ses poignées pour la déformer et la poignée ronde pour la tourner. Régler sa couleur, son opacité et sa position devant ou derrière les autres formes, puis valider. Toucher une forme pour la modifier.</li><li><strong>Replier et rechercher.</strong> Utiliser le chevron d’une cellule pour masquer ou afficher ses descendants. Saisir une recherche pour retrouver des textes, notes et précisions de liens dans l’ensemble des cartes. Utiliser la loupe du résultat pour rejoindre l’élément concerné.</li><li><strong>Verrouiller et annuler.</strong> Fermer le cadenas pour empêcher les modifications tout en conservant la navigation, les changements de vue, les sauvegardes et les exports. Utiliser Annuler ou Rétablir dans la barre supérieure pour revenir sur une modification. Appuyer sur Échap pour annuler un déplacement en cours.</li><li><strong>Copier et supprimer des cartes.</strong> Utiliser l’icône de sortie d’une cellule pour créer une carte à partir de celle-ci, avec ou sans descendants. Utiliser l’icône d’insertion pour copier une autre carte sous une cellule. Conserver des copies indépendantes. Utiliser la corbeille de la barre supérieure pour supprimer une carte après confirmation, puis Annuler ou « Restaurer la dernière carte supprimée » si nécessaire.</li><li><strong>Sauvegarder et importer.</strong> Choisir la disquette, puis sauvegarder la carte active ou toutes les cartes dans un fichier .json, images, polices et réglages compris. Conserver régulièrement une copie en dehors du navigateur, notamment avant d’effacer ses données. Ouvrir aussi les anciens fichiers .mindo, .mindmap et .mindmaps, les fichiers JSON d’Univers ou de Pop, les diaporamas HTML d’Univers et les fichiers Markdown. Importer les cartes Mindoscope, Univers et Pop! contenues dans un fichier de l’application Projets. Utiliser Mindoscope dans Projets pour enregistrer les cartes dans le projet ouvert ; conserver un espace indépendant en usage autonome. Remplacer automatiquement la carte de démarrage vide ; sinon, choisir Ajouter ou Remplacer. Reprendre les réglages du fichier avec la case proposée. Réordonner les cartes tout en bas des réglages, puis appliquer.</li><li><strong>Exporter.</strong> Choisir « PDF », régler le format et l’orientation, puis créer et télécharger le fichier. Reprendre la vue et le fond de la carte, y compris en mode nocturne. Cocher les notes de cellules ou de liens pour ajouter les éléments visibles contenant du texte ou une image ; exclure les descendants masqués par une branche repliée. Utiliser les URL cliquables du PDF. Ouvrir le menu général puis « Markdown » pour exporter les textes hiérarchisés sans les images.</li><li><strong>Réinitialiser.</strong> Utiliser « Réinitialiser tous les réglages » pour restaurer les préférences et les fonds sans supprimer les cartes. Utiliser « Tout remettre à zéro » pour effacer également les cartes et les polices importées, puis confirmer. Sauvegarder les cartes à conserver avant cette opération.</li><li><strong>Utiliser le clavier.</strong> Appuyer sur Entrée pour ajouter un enfant pendant la saisie d’une cellule ; utiliser Maj + Entrée pour insérer une ligne. Hors d’un champ texte, utiliser Ctrl / ⌘ + Z pour annuler.</li></ol>";
         I.en.helpBody =
-          "<ol><li><strong>Create and open maps.</strong> Use New map, enter a title and choose Create map. Switch maps using the title menu. Use the folder to import files without replacing existing maps.</li><li><strong>Add cells.</strong> Use a cell’s + to add a child with the parent’s background, opacity and border, while keeping level typography. Use + Cell for an unlinked cell. Tap text to edit it and the yellow details button to edit notes and styles.</li><li><strong>Arrange and move branches.</strong> Choose free placement or a directional layout. In automatic layouts, drag the six-dot grip or the cell background in a view without controls. Drop in another cell’s centre to change parent, or near its top/bottom edge to reorder. In vertical layouts, use left/right edges. Move descendants with the branch.</li><li><strong>Use free placement.</strong> Drag a cell or its grip. Check the box beside directions to include descendants, including folded ones. Reattach a branch from its cell details. Enable automatic parent styling in settings, with or without typography. Keep the existing parent when merely moving a cell freely.</li><li><strong>Navigate and change views.</strong> Drag the background, pinch with two fingers or use + and − to zoom. Choose Fit map to see everything. Use the eye with a red underline to switch between two views. Enable the optional compact third view in settings.</li><li><strong>Edit images and styles.</strong> Add an image, adjust its crop and confirm. Use Whole image to reset the crop and cell details to change its size. Use PNG for transparency. Choose fonts, sizes, alignment, text and cell colours in cell details. Adjust background opacity or hide the border. Apply styles to descendants with or without typography. Set level 1–5 typography and import or remove custom fonts in settings.</li><li><strong>Edit multiple elements.</strong> Choose Select, select cells and choose Modify. Check only the properties to apply. Choose Modify links, select individual links or all links, then apply a graphical line style. Finish selection to resume normal editing.</li><li><strong>Connect cells and add notes.</strong> Choose + Link, select a parent and child, then confirm. Add multiple links where needed. Tap a line to edit its label, notes, image and style. Use the primary branch for folding and grouped movement. Find technical link numbers in PDF notes.</li><li><strong>Add shapes.</strong> Choose + Shape to add a rectangle, ellipse, cloud or brace. Drag to move, resize with handles and rotate with the round handle. Set colour, opacity and stacking order, then confirm. Tap a shape to edit it.</li><li><strong>Fold and search.</strong> Use a cell’s chevron to hide or reveal descendants. Search across all maps, cell notes and link details. Use the result’s magnifier to navigate to the matching item.</li><li><strong>Lock and undo.</strong> Close the padlock to prevent editing while keeping navigation, view changes, saving and exports available. Use Undo and Redo in the toolbar. Press Escape to cancel a move.</li><li><strong>Copy and delete maps.</strong> Create a map from a cell using its outward-arrow button, with or without descendants. Insert an independent copy of another map using the inward-arrow button. Delete a map with the toolbar bin after confirmation; use Undo or Restore the last deleted map to recover it.</li><li><strong>Save and import.</strong> Use the disk button to save one map or all maps as .mindo, including images and fonts. Keep regular file backups outside the browser, especially before clearing browser data. Open legacy .mindmap and .mindmaps files, Univers or Pop JSON, Univers HTML slideshows and Markdown. Import multiple Univers maps as separate maps.</li><li><strong>Export.</strong> Choose PDF, set page size and orientation, then create and download the file. Include the map’s current view and background, including night mode. Enable cell or link notes to include visible items containing text or an image; exclude descendants hidden by collapsed branches. Follow clickable PDF URLs. Use Markdown in settings to export hierarchical text without images.</li><li><strong>Reset.</strong> Use Reset all settings to restore preferences and map backgrounds while keeping maps. Use Reset everything and confirm to also delete maps and imported fonts. Save a backup first.</li><li><strong>Use the keyboard.</strong> Press Enter to add a child while editing a cell, or Shift + Enter for a line break. Outside text fields, use Ctrl / ⌘ + Z to undo.</li></ol>";
+          "<ol><li><strong>Create and open maps.</strong> Use New map, enter a title and choose Create map. Switch maps using the title menu. Use the folder to import files, then choose to add maps or replace existing maps.</li><li><strong>Add cells.</strong> Use a cell’s + to add a child with the parent’s background, opacity and border, while keeping level typography. Use + Cell for an unlinked cell. Tap text to edit it and the yellow details button to edit notes and styles.</li><li><strong>Arrange and move branches.</strong> Choose free placement or a directional layout. In automatic layouts, drag the six-dot grip or the cell background in a view without controls. Drop in another cell’s centre to change parent, or near its top/bottom edge to reorder. In vertical layouts, use left/right edges. Move descendants with the branch.</li><li><strong>Use free placement.</strong> Drag a cell or its grip. Check the box beside directions to include descendants, including folded ones. Reattach a branch from its cell details. Enable automatic parent styling in settings, with or without typography. Keep the existing parent when merely moving a cell freely.</li><li><strong>Navigate and change views.</strong> Drag the background, pinch with two fingers or use + and − to zoom. Choose Fit map to see everything. Use the eye with a red underline to switch between two views. Enable the optional compact third view in settings.</li><li><strong>Edit images and styles.</strong> Add an image, adjust its crop and confirm. Use Whole image to reset the crop and cell details to change its size. Use PNG for transparency. Choose fonts, sizes, alignment, text and cell colours in cell details. Adjust background opacity or hide the border. Apply styles to descendants with or without typography. Set level 1–5 typography and import or remove custom fonts in settings.</li><li><strong>Edit multiple elements.</strong> Choose Select, select cells and choose Modify. Check only the properties to apply. Choose Modify links, select individual links or all links, then apply a graphical line style. Finish selection to resume normal editing.</li><li><strong>Connect cells and add notes.</strong> Choose + Link, select a parent and child, then confirm. Add multiple links where needed. Tap a line to edit its label, notes, image and style. Use the primary branch for folding and grouped movement. Find technical link numbers in PDF notes.</li><li><strong>Add shapes.</strong> Choose + Shape to add a rectangle, ellipse, cloud or brace. Drag to move, resize with handles and rotate with the round handle. Set colour, opacity and stacking order, then confirm. Tap a shape to edit it.</li><li><strong>Fold and search.</strong> Use a cell’s chevron to hide or reveal descendants. Search across all maps, cell notes and link details. Use the result’s magnifier to navigate to the matching item.</li><li><strong>Lock and undo.</strong> Close the padlock to prevent editing while keeping navigation, view changes, saving and exports available. Use Undo and Redo in the toolbar. Press Escape to cancel a move.</li><li><strong>Copy and delete maps.</strong> Create a map from a cell using its outward-arrow button, with or without descendants. Insert an independent copy of another map using the inward-arrow button. Delete a map with the toolbar bin after confirmation; use Undo or Restore the last deleted map to recover it.</li><li><strong>Save and import.</strong> Use the disk button to save one map or all maps as .json, including images, fonts and settings. Keep regular file backups outside the browser, especially before clearing browser data. Open legacy .mindo, .mindmap and .mindmaps files, Univers or Pop JSON, Univers HTML slideshows and Markdown. Import Mindoscope, Univers and Pop! maps from a Projects file. Use Mindoscope inside Projects to save maps in the current project; keep a separate workspace in standalone mode. Replace the empty starting map automatically; otherwise, choose Add or Replace. Restore file settings with the provided checkbox. Reorder maps at the bottom of settings, then apply.</li><li><strong>Export.</strong> Choose PDF, set page size and orientation, then create and download the file. Include the map’s current view and background, including night mode. Enable cell or link notes to include visible items containing text or an image; exclude descendants hidden by collapsed branches. Follow clickable PDF URLs. Use Markdown in settings to export hierarchical text without images.</li><li><strong>Reset.</strong> Use Reset all settings to restore preferences and map backgrounds while keeping maps. Use Reset everything and confirm to also delete maps and imported fonts. Save a backup first.</li><li><strong>Use the keyboard.</strong> Press Enter to add a child while editing a cell, or Shift + Enter for a line break. Outside text fields, use Ctrl / ⌘ + Z to undo.</li></ol>";
         function translate() {
           document.documentElement.lang = language;
           document.documentElement.dataset.theme = theme;
@@ -6603,19 +6755,23 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             dirty ? "saving" : storageReady ? "savedLocal" : "saveError",
           );
           try {
-            localStorage.setItem(
+            preferenceStore.setItem(
               KEY + "-prefs",
               JSON.stringify({ language, theme }),
             );
           } catch {}
         }
-        // Mémorisation IndexedDB ; le fichier .mindo reste la sauvegarde transportable.
+        // Mémorisation IndexedDB ; le fichier .json reste la sauvegarde transportable.
         function saveStatus(key) {
           $("save-state").hidden = key === "savedLocal";
           $("save-state").textContent = key === "savedLocal" ? "" : t(key);
           $("save-state").classList.toggle("error", key === "saveError");
         }
         function openDB() {
+          if (projectMode)
+            return Promise.reject(
+              new Error("Project storage belongs to Projets"),
+            );
           return new Promise((resolve, reject) => {
             if (!globalThis.indexedDB) return reject(new Error("No IndexedDB"));
             const req = indexedDB.open(KEY, 1);
@@ -6650,6 +6806,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           if (isFree()) rememberFreePositions();
           revision++;
           dirty = true;
+          if (projectBridge.ready) projectPost("dirty");
           syncActiveMap();
           updateMapMenu();
           saveStatus("saving");
@@ -6661,6 +6818,14 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         async function persist() {
           clearTimeout(saveTimer);
           if (initializing) return;
+          if (projectMode) {
+            try {
+              await saveToProject();
+            } catch {
+              saveStatus("saveError");
+            }
+            return;
+          }
           const savedRevision = revision,
             snapshot = collectionSnapshot();
           writeQueue = writeQueue
@@ -6687,7 +6852,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           if (
             !input ||
             input.app !== APP ||
-            !/^(?:0\.(?:[1-9]|1[0-9]|2[0-8])\.\d+|1\.0\.\d+)$/.test(
+            !/^(?:0\.(?:[1-9]|1[0-9]|2[0-8])\.\d+|1\.[01]\.\d+)$/.test(
               input.version || "",
             ) ||
             !Array.isArray(input.nodes) ||
@@ -6715,6 +6880,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             ? input.direction
             : "horizontal";
           out.groupMove = input.groupMove !== false;
+          if (input.settings) out.settings = validateSettings(input.settings);
           if (
             input.canvasBackground !== undefined &&
             input.canvasBackground !== "" &&
@@ -6821,6 +6987,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           return out;
         }
         async function initialize() {
+          if (projectMode) return;
           try {
             db = await openDB();
             storageReady = true;
@@ -6889,6 +7056,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           syncLinks(doc);
           const data = {
             ...clone(doc),
+            settings: settingsSnapshot(),
             version: VERSION,
             updatedAt: new Date().toISOString(),
           };
@@ -6896,7 +7064,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             new Blob([JSON.stringify(data, null, 2)], {
               type: "application/json",
             }),
-            "carte-" + slug() + ".mindo",
+            "carte-" + slug() + ".json",
           );
           toast(t("fileSaved"));
           persist();
@@ -7655,9 +7823,9 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           next.nodes[0].text = next.title;
           return next;
         }
-        async function importUnivers(input) {
+        async function prepareUnivers(input) {
           const sources = universMaps(input);
-          if (!sources) return false;
+          if (!sources) return null;
           const converted = sources.map((m) => convertUniversMap(m, sources));
           const payload = universPayload(input);
           for (const link of payload.crossLinks || []) {
@@ -7691,10 +7859,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             await checkImages(data);
             entries.push({ id: id(), data });
           }
-          if (mapLocked) return true;
-          appendCollection({ maps: entries, activeId: entries[0].id });
-          toast(entries.length + " " + t("universImported"));
-          return true;
+          return { maps: entries, activeId: entries[0].id };
         }
         Object.assign(I.fr, {
           universImported: "carte(s) Univers importée(s).",
@@ -7805,52 +7970,144 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         Object.assign(I.fr, { popImported: "Carte Pop importée." });
         Object.assign(I.en, { popImported: "Pop map imported." });
 
-        async function importFile(file) {
-          if (!file) return;
+        let pendingImport = null;
+        let importBusy = false;
+        function isEmptyWorkspace() {
+          return (
+            maps.length === 1 &&
+            doc.nodes.length === 1 &&
+            !doc.nodes[0].text.trim() &&
+            !doc.nodes[0].note &&
+            !doc.nodes[0].style &&
+            !doc.portrait &&
+            !doc.nodes[0].image &&
+            !(doc.regions || []).length
+          );
+        }
+        async function prepareImport(input) {
+          if (input?.app === "eigrutel-projets") {
+            const projects = input.project ? [input.project] : input.projects;
+            if (!Array.isArray(projects) || !projects.length)
+              throw Error("projects");
+            const entries = [];
+            let settings = null;
+            for (const project of projects) {
+              const tools = project?.tools || {};
+              if (tools.mindoscope && !tools.mindoscope.initialize) {
+                const native =
+                  tools.mindoscope.kind === "map-collection"
+                    ? validateCollection(tools.mindoscope)
+                    : {
+                        maps: [{ id: id(), data: validate(tools.mindoscope) }],
+                        settings: validateSettings(tools.mindoscope.settings),
+                      };
+                entries.push(...native.maps);
+                settings ||= native.settings;
+              }
+              if (tools.univers) {
+                const universe = await prepareUnivers(tools.univers);
+                if (universe) entries.push(...universe.maps);
+              }
+              // Pop can be enabled but still empty in a project: do not create a phantom map.
+              if (
+                tools.pop?.nodes?.some(
+                  (n) => typeof n.text === "string" && n.text.trim(),
+                )
+              ) {
+                const pop = convertPop(tools.pop);
+                if (pop) entries.push({ id: id(), data: pop });
+              }
+            }
+            if (!entries.length) throw Error("No maps");
+            return { maps: entries, activeId: entries[0].id, settings };
+          }
+          if (input?.kind === "map-collection")
+            return validateCollection(input);
+          const universe = await prepareUnivers(input);
+          if (universe) return universe;
+          const data = convertPop(input) || validate(input);
+          const mapId = id();
+          return {
+            maps: [{ id: mapId, data }],
+            activeId: mapId,
+            settings: data.settings,
+          };
+        }
+        function commitImport(restored, replace, useSettings) {
+          if (mapLocked) return;
+          // All maps and images have been checked before any existing map is removed.
+          if (useSettings) applyImportedSettings(restored.settings);
+          if (replace) {
+            maps = [];
+            mapSessions.clear();
+            lastDeletedMap = null;
+          }
+          const count = appendCollection(restored);
+          toast(count + " " + t("collectionOpened"));
+        }
+        function importFile(file) {
+          const task = runImportFile(file);
+          projectTasks.add(task);
+          task.finally(() => projectTasks.delete(task));
+          return task;
+        }
+        async function runImportFile(file) {
+          if (!file || importBusy || pendingImport || mapLocked) return;
           if (file.size > MAX_COLLECTION_FILE) {
             toast(t("collectionLarge"));
             return;
           }
+          importBusy = true;
           try {
+            await initialization;
+            let restored;
+            const raw = await file.text();
             if (/\.(md|markdown)$/i.test(file.name)) {
               if (file.size > 2000000) throw Error("Markdown too large");
-              addMap(parseMarkdown(await file.text(), file.name));
-              toast(t("opened"));
-              return;
-            }
-            const raw = await file.text();
-            const input = /\.(html|htm)$/i.test(file.name)
-              ? parseUniversHTML(raw)
-              : JSON.parse(raw);
-            const pop = convertPop(input);
-            if (pop) {
-              if (mapLocked) return;
-              addMap(pop);
-              toast(t("popImported"));
-              return;
-            }
-            if (await importUnivers(input)) return;
-            if (input?.kind === "map-collection") {
-              const restored = validateCollection(input);
-              for (const entry of restored.maps) await checkImages(entry.data);
-              const count = appendCollection(restored);
-              toast(count + " " + t("collectionOpened"));
+              const mapId = id();
+              restored = {
+                maps: [{ id: mapId, data: parseMarkdown(raw, file.name) }],
+                activeId: mapId,
+              };
             } else {
-              if (file.size > 100 * 1024 * 1024) {
-                toast(t("fileLarge"));
-                return;
-              }
-              const next = validate(input);
-              await checkImages(next);
-              addMap(next);
-              toast(t("opened"));
+              const input = /\.(html|htm)$/i.test(file.name)
+                ? parseUniversHTML(raw)
+                : JSON.parse(raw);
+              restored = await prepareImport(input);
+            }
+            for (const entry of restored.maps) await checkImages(entry.data);
+            if (mapLocked) return;
+            if (isEmptyWorkspace()) {
+              commitImport(restored, true, true);
+            } else {
+              pendingImport = restored;
+              $("import-summary").textContent =
+                restored.maps.length + " " + t("mapsCount");
+              $("import-mode").value = "add";
+              $("import-settings-row").hidden = !restored.settings;
+              $("import-settings").checked = !!restored.settings;
+              $("import-dialog").showModal();
             }
           } catch {
             toast(t("badFile"));
           } finally {
+            importBusy = false;
             $("file-input").value = "";
           }
         }
+        $("import-confirm").onclick = () => {
+          if (!pendingImport || mapLocked) return;
+          const restored = pendingImport;
+          commitImport(
+            restored,
+            $("import-mode").value === "replace",
+            $("import-settings").checked,
+          );
+          $("import-dialog").close();
+        };
+        $("import-dialog").addEventListener("close", () => {
+          pendingImport = null;
+        });
         // Export autonome : carte sur son fond jour/nuit, puis annexes de notes visibles.
         // Encapsuler les rendus JPEG et les annotations URL dans le PDF, sans commandes UI.
         function roundRect(ctx, x, y, w, h, r) {
@@ -10586,7 +10843,10 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             render();
             let message = "fontImported";
             try {
-              localStorage.setItem(KEY + "-fonts", JSON.stringify(fontCatalog));
+              preferenceStore.setItem(
+                KEY + "-fonts",
+                JSON.stringify(fontCatalog),
+              );
             } catch {
               message = "fontStorage";
             }
@@ -10924,8 +11184,11 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             });
           fontLoads.delete(fid);
           try {
-            localStorage.setItem(KEY + "-fonts", JSON.stringify(fontCatalog));
-            localStorage.setItem(
+            preferenceStore.setItem(
+              KEY + "-fonts",
+              JSON.stringify(fontCatalog),
+            );
+            preferenceStore.setItem(
               KEY + "-defaults",
               JSON.stringify(defaultSettings),
             );
@@ -11528,7 +11791,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         });
         function factorySettings() {
           return {
-            branchStyle: "taper",
+            branchStyle: "solid",
             levels: clone(INITIAL_LEVELS),
             canvasBackground: "",
             enableThirdView: false,
@@ -11542,11 +11805,11 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           theme = "day";
           viewMode = 0;
           try {
-            localStorage.setItem(
+            preferenceStore.setItem(
               KEY + "-defaults",
               JSON.stringify(defaultSettings),
             );
-            localStorage.setItem(
+            preferenceStore.setItem(
               KEY + "-prefs",
               JSON.stringify({ language, theme }),
             );
@@ -11587,7 +11850,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             await initialization;
             clearTimeout(saveTimer);
             await writeQueue.catch(() => {});
-            if (!db) db = await openDB();
+            if (!projectMode && !db) db = await openDB();
             const empty = {
                 app: APP,
                 version: VERSION,
@@ -11611,15 +11874,16 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
                 maps: [{ id: mapId, data: empty }],
                 updatedAt: new Date().toISOString(),
               };
-            await new Promise((resolve, reject) => {
-              const tx = db.transaction("documents", "readwrite"),
-                store = tx.objectStore("documents");
-              store.clear();
-              store.put(collection, "map-collection");
-              tx.oncomplete = resolve;
-              tx.onerror = () => reject(tx.error);
-              tx.onabort = () => reject(tx.error);
-            });
+            if (!projectMode)
+              await new Promise((resolve, reject) => {
+                const tx = db.transaction("documents", "readwrite"),
+                  store = tx.objectStore("documents");
+                store.clear();
+                store.put(collection, "map-collection");
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+                tx.onabort = () => reject(tx.error);
+              });
             for (const dialog of document.querySelectorAll("dialog[open]"))
               dialog.close();
             abortBranchDrag();
@@ -11649,7 +11913,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
               for (const o of [...select.options])
                 if (o.value.startsWith("custom_")) o.remove();
             try {
-              localStorage.removeItem(KEY + "-fonts");
+              preferenceStore.removeItem(KEY + "-fonts");
             } catch {}
             restorePreferences();
             doc = empty;
@@ -11782,7 +12046,48 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         }
         $("bulk-links-apply").onclick = applyBulkLinks;
 
+        let draftMapOrder = [];
+        function paintMapOrder() {
+          const host = $("map-order-list");
+          host.replaceChildren();
+          draftMapOrder.forEach((mapId, index) => {
+            const row = document.createElement("div");
+            row.style.cssText =
+              "display:flex;align-items:center;gap:8px;margin:8px 0";
+            const name = document.createElement("span");
+            name.style.cssText = "flex:1;min-width:0;overflow-wrap:anywhere";
+            name.textContent = mapName(maps.find((m) => m.id === mapId).data);
+            row.append(name);
+            for (const delta of [-1, 1]) {
+              const b = document.createElement("button");
+              b.className = "btn";
+              b.type = "button";
+              b.textContent = delta < 0 ? "↑" : "↓";
+              b.setAttribute(
+                "aria-label",
+                t(delta < 0 ? "mapUp" : "mapDown") + " : " + name.textContent,
+              );
+              b.disabled =
+                mapLocked ||
+                index + delta < 0 ||
+                index + delta >= draftMapOrder.length;
+              b.onclick = () => {
+                if (mapLocked) return;
+                [draftMapOrder[index], draftMapOrder[index + delta]] = [
+                  draftMapOrder[index + delta],
+                  draftMapOrder[index],
+                ];
+                paintMapOrder();
+              };
+              row.append(b);
+            }
+            host.append(row);
+          });
+        }
         function openDefaults() {
+          syncActiveMap();
+          draftMapOrder = maps.map((m) => m.id);
+          paintMapOrder();
           closeDirections();
           $("defaults-inherit-move").checked = !!defaultSettings.inheritOnMove;
           $("defaults-inherit-typography").value =
@@ -11915,7 +12220,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
           language = $("defaults-language").value;
           theme = $("defaults-dark").checked ? "night" : "day";
           try {
-            localStorage.setItem(
+            preferenceStore.setItem(
               KEY + "-defaults",
               JSON.stringify(defaultSettings),
             );
@@ -11927,6 +12232,14 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             entry.data.fonts = clone(fontCatalog);
           }
           doc.typography = clone(levels);
+          if (!mapLocked) {
+            const order = new Map(draftMapOrder.map((id, i) => [id, i]));
+            maps.sort(
+              (a, b) =>
+                (order.get(a.id) ?? maps.length) -
+                (order.get(b.id) ?? maps.length),
+            );
+          }
           changed();
           $("defaults-dialog").close();
           translate();
@@ -11963,10 +12276,12 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         $("clean").onclick = () => setViewMode((viewMode + 1) % viewCount());
         $("theme").onclick = () => {
           theme = theme === "day" ? "night" : "day";
+          if (projectMode) changed();
           translate();
         };
         $("lang").onclick = () => {
           language = language === "fr" ? "en" : "fr";
+          if (projectMode) changed();
           translate();
           render();
         };
@@ -12061,6 +12376,155 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
             e.returnValue = "";
           }
         });
+        // Finish a font import before Projets snapshots this workspace for navigation.
+        const importFontHandler = fontInput.onchange;
+        fontInput.onchange = function (...args) {
+          const task = Promise.resolve(importFontHandler.apply(this, args));
+          projectTasks.add(task);
+          task.finally(() => projectTasks.delete(task));
+          return task;
+        };
+        // Same-origin protocol used by Projets. Sessions and acknowledgements prevent
+        // a late message from saving into a different project or reporting an unsaved edit as clean.
+        function saveToProject(requestId) {
+          if (!projectBridge.ready)
+            return Promise.reject(new Error("Project not loaded"));
+          clearTimeout(saveTimer);
+          const savedRevision = revision;
+          const data = { ...collectionSnapshot(), version: VERSION };
+          return new Promise((resolve, reject) => {
+            const pending = {
+              revision: savedRevision,
+              resolve,
+              reject,
+              timer: null,
+            };
+            pending.timer = setTimeout(() => {
+              projectBridge.pending.delete(pending);
+              saveStatus("saveError");
+              reject(new Error("Project save not confirmed"));
+            }, 6000);
+            projectBridge.pending.add(pending);
+            projectPost("save", { data, revision: savedRevision, requestId });
+          });
+        }
+        async function receiveProjectMessage(event) {
+          const m = event.data;
+          if (
+            !projectMode ||
+            event.source !== window.parent ||
+            event.origin !== location.origin ||
+            m?.channel !== "eigrutel-projets-v1" ||
+            typeof m.initId !== "string" ||
+            !m.initId
+          )
+            return;
+          if (m.type === "init") {
+            if (projectBridge.ready || projectBridge.loading) return;
+            projectBridge.loading = true;
+            projectBridge.session = m.initId;
+            try {
+              await initialization;
+              let restored;
+              if (
+                m.data == null ||
+                (m.data.app === APP && m.data.initialize === true)
+              ) {
+                const data = fresh();
+                data.nodes[0].text = String(
+                  m.name || m.data?.projectName || "",
+                ).slice(0, 600);
+                data.title = data.nodes[0].text;
+                const mapId = id();
+                restored = { maps: [{ id: mapId, data }], activeId: mapId };
+              } else if (m.data.kind === "map-collection") {
+                restored = validateCollection(m.data);
+              } else {
+                const data = validate(m.data),
+                  mapId = id();
+                restored = {
+                  maps: [{ id: mapId, data }],
+                  activeId: mapId,
+                  settings: data.settings,
+                };
+              }
+              for (const entry of restored.maps) await checkImages(entry.data);
+              if (restored.settings) applyImportedSettings(restored.settings);
+              maps = restored.maps;
+              activeMapId = restored.activeId;
+              doc = maps.find((entry) => entry.id === activeMapId).data;
+              await ensureFonts();
+              // A freshly attached frame has no access to another project's undo/history.
+              mapSessions.clear();
+              undoStack = [];
+              redoStack = [];
+              revision = 0;
+              dirty = false;
+              storageReady = true;
+              initializing = false;
+              projectBridge.ready = true;
+              updateMapMenu();
+              translate();
+              render();
+              fit();
+              document.querySelector(".app").inert = false;
+              projectPost("loaded");
+              await saveToProject();
+            } catch (error) {
+              saveStatus("saveError");
+              projectPost("error", {
+                message:
+                  language === "fr"
+                    ? "Chargement ou enregistrement Mindoscope non confirmé. Conserver cet espace ouvert et sauvegarder un JSON si nécessaire."
+                    : "Mindoscope loading or saving was not confirmed. Keep this workspace open and save a JSON backup if needed.",
+              });
+            } finally {
+              projectBridge.loading = false;
+            }
+            return;
+          }
+          if (!projectBridge.ready || m.initId !== projectBridge.session)
+            return;
+          if (m.type === "ack" || m.type === "save-error") {
+            if (!Number.isInteger(m.revision)) return;
+            for (const pending of [...projectBridge.pending]) {
+              if (pending.revision !== m.revision) continue;
+              clearTimeout(pending.timer);
+              projectBridge.pending.delete(pending);
+              if (m.type === "ack") pending.resolve();
+              else pending.reject(new Error("Project save failed"));
+            }
+            if (m.type === "ack" && revision === m.revision) {
+              dirty = false;
+              saveStatus("savedLocal");
+              projectPost("clean");
+            } else if (m.type === "save-error") saveStatus("saveError");
+          } else if (m.type === "flush" && typeof m.requestId === "string") {
+            try {
+              await Promise.all([...projectTasks]);
+              await saveToProject(m.requestId);
+            } catch {
+              saveStatus("saveError");
+              projectPost("error", { message: t("saveError") });
+            }
+          }
+        }
+        if (projectMode) {
+          Object.assign(I.fr, {
+            saveError: "Enregistrement du projet non confirmé.",
+            resetAllHint:
+              "Supprimer toutes les cartes, images, polices et réglages Mindoscope de ce projet. Conserver les autres outils, les autres projets et Mindoscope autonome. Cette opération est irréversible ; les fichiers téléchargés sont conservés.",
+            resetAllConfirm: "Effacer Mindoscope dans ce projet",
+          });
+          Object.assign(I.en, {
+            saveError: "Project save not confirmed.",
+            resetAllHint:
+              "Delete all Mindoscope maps, images, fonts and settings in this project. Keep other tools, other projects and standalone Mindoscope unchanged. This cannot be undone; downloaded files are kept.",
+            resetAllConfirm: "Reset Mindoscope in this project",
+          });
+          window.EigrutelApp = { appId: "mindoscope", version: VERSION };
+          window.addEventListener("message", receiveProjectMessage);
+        }
         // Point d’entrée explicite, sans messages inter-fenêtres ni accès réseau.
         window.EigrutelMindmap = {
           version: VERSION,
@@ -12080,6 +12544,7 @@ Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Acade
         render();
         fit();
         const initialization = initialize();
+        if (projectMode) initialization.then(() => projectPost("ready"));
       })();
     </script>
   </body>

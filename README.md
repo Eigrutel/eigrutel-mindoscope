@@ -1,6 +1,6 @@
 # mindoscope
 
-**Version 1.0.0 · 17-11-2026**
+**Version 1.1.0 · 19-11-2026**
 
 Application de cartes mentales conçue et développée par **Simon Léturgie** dans le cadre d’**Eigrutel BD Academy** et d’**Eigrutel Lab - Atelier d’outils libres pour la bande dessinée**.
 
@@ -41,11 +41,11 @@ Créer plusieurs cartes mentales avec du texte, des images, des notes, des liens
 
 ### Sauvegarder
 
-Utiliser la disquette pour enregistrer la carte active ou toutes les cartes dans un fichier **.mindo**. Le fichier contient des données JSON, les images et les polices importées. Le bouton dossier permet de l’ouvrir en ajoutant les cartes à celles déjà présentes.
+Utiliser la disquette pour enregistrer la carte active ou toutes les cartes dans un fichier **.json**. Le fichier contient des données JSON, les images et les polices importées. Le bouton dossier permet de choisir entre ajouter les cartes ou remplacer celles déjà présentes, après validation du fichier. La carte de démarrage vide est remplacée automatiquement. Les anciens fichiers .mindo restent lisibles.
 
-Continuer à ouvrir les anciens fichiers .mindmap et .mindmaps. Les identifiants de stockage des versions de développement sont conservés.
+Continuer à ouvrir les anciens fichiers .mindo, .mindmap et .mindmaps. Les identifiants de stockage des versions de développement sont conservés.
 
-La mémorisation locale utilise IndexedDB ; les préférences utilisent localStorage. Elle dépend du navigateur et de l’origine du site, ne se synchronise pas entre appareils et peut disparaître lors d’un effacement des données. Conserver régulièrement des sauvegardes .mindo en dehors du navigateur.
+La mémorisation locale utilise IndexedDB ; les préférences utilisent localStorage. Elle dépend du navigateur et de l’origine du site, ne se synchronise pas entre appareils et peut disparaître lors d’un effacement des données. Conserver régulièrement des sauvegardes .json en dehors du navigateur.
 
 ### PDF et limites
 
@@ -73,7 +73,7 @@ Import supported Univers and Pop files, Univers HTML slideshows and Markdown. Ex
 
 Open mindoscope.html in a modern browser, keeping the favicon folder alongside it, or use the hosted application. On iPhone/iPad, prefer the hosted page in Safari to a file-manager preview.
 
-Use the disk button to save one map or all maps as **.mindo** JSON files, including images and fonts. Use the folder to open files without replacing existing maps. Legacy .mindmap and .mindmaps backups remain supported.
+Use the disk button to save one map or all maps as **.json** JSON files, including images and fonts. Use the folder to add maps or replace existing maps after file validation. The empty starting map is replaced automatically. Legacy .mindo, .mindmap and .mindmaps backups remain supported.
 
 Maps are stored locally in IndexedDB and preferences in localStorage. Browser data is not synchronised across devices and may be removed by clearing storage. Keep regular file backups outside the browser.
 
@@ -109,3 +109,19 @@ Copyright © 2026 Simon Léturgie.
 - Marques, logos et signes distinctifs Eigrutel / Eigrutel Lab / Eigrutel BD Academy : réservés / reserved.
 
 Consulter [LICENSE.md](LICENSE.md) et [NOTICE.md](NOTICE.md).
+
+## Mise à jour 1.0.1 / Update 1.0.1
+
+Conserver les réglages par défaut, la langue, le thème, les styles des liens et l’ordre des cartes dans les sauvegardes JSON. Utiliser la case proposée à l’import pour reprendre les réglages du fichier. Choisir le trait simple par défaut pour les nouvelles branches. Réordonner les cartes avec les flèches au bas des réglages puis appliquer. Ouvrir un export de Projets pour récupérer ensemble ses cartes Univers et Pop! ; ignorer un espace Pop! vide.
+
+Keep default settings, language, theme, link styles and map order in JSON backups. Use the import checkbox to restore file settings. New branches default to a solid line. Reorder maps with the arrows at the bottom of settings, then apply. Open a Projects export to recover both Univers and Pop! maps; skip an empty Pop! workspace.
+
+## Utiliser avec Projets / Use with Projets
+
+Activer Mindoscope dans les outils d’un projet. Toutes ses cartes, leur ordre, leurs images, notes, liens, formes, polices et réglages sont alors enregistrés dans ce projet. Attendre la confirmation de sauvegarde avant de quitter l’outil. Le mode intégré n’utilise pas le stockage de Mindoscope autonome.
+
+Utiliser le dossier dans Mindoscope, autonome ou intégré, pour ouvrir une sauvegarde Mindoscope ou un JSON Projets. Un fichier Projets peut fournir ses cartes Mindoscope, Univers et Pop! ; les espaces non initialisés sont ignorés. Choisir Ajouter ou Remplacer. Ces imports sont des copies indépendantes, sans synchronisation automatique. Les réglages natifs Mindoscope peuvent être repris avec la case d’import.
+
+Enable Mindoscope in a project's tools. Its complete map collection, order, images, notes, links, shapes, fonts and settings are stored in that project. Navigation waits for confirmed saving. Embedded mode does not access standalone Mindoscope storage.
+
+Use the folder in standalone or embedded Mindoscope to import Mindoscope backups or a Projets JSON export. Projets files can supply Mindoscope, Univers and Pop! maps; uninitialised tools are skipped. Choose Add or Replace. Imports create independent copies, with no automatic synchronisation. Native Mindoscope settings can be restored with the import checkbox.

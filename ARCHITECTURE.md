@@ -1,6 +1,6 @@
 # Architecture de mindoscope
 
-Version 1.0.0 · 17-11-2026
+Version 1.1.0 · 19-11-2026
 
 ## Organisation
 
@@ -30,7 +30,7 @@ IndexedDB conserve la collection ; localStorage conserve préférences et catalo
 
 Conserver l’identifiant historique eigrutel-character-mindmap et la clé eigrutel-character-mindmap-v1 pour retrouver les anciennes données.
 
-L’extension .mindo transporte du JSON pour une carte ou une collection, reconnue par son contenu. Lire aussi les anciennes extensions .mindmap et .mindmaps. La version 1.0.0 accepte les versions de développement 0.1 à 0.28 et la série 1.0.x.
+L’extension .json transporte du JSON pour une carte ou une collection, reconnue par son contenu. Lire aussi les anciennes extensions .mindo, .mindmap et .mindmaps. La version 1.1.0 accepte les versions de développement 0.1 à 0.28 et les séries 1.0.x et 1.1.x.
 
 ## Import et sécurité
 
@@ -52,4 +52,16 @@ Mettre à jour ensemble version, en-tête, compatibilité d’import, page d’a
 
 Single-file vanilla HTML/CSS/JavaScript application with a separate landing page. HTML cells and SVG links/shapes share map coordinates; view pan/zoom is separate.
 
-IndexedDB stores collections; localStorage stores preferences. Keep historical application and storage identifiers for compatibility. Validate imports before use. Save JSON maps or collections as .mindo with embedded images/fonts. Export rasterised PDF pages with URL annotations. No build step is required.
+IndexedDB stores collections; localStorage stores preferences. Keep historical application and storage identifiers for compatibility. Validate imports before use. Save JSON maps or collections as .json with embedded images/fonts. Export rasterised PDF pages with URL annotations. No build step is required.
+
+## Import 1.0.1
+
+Préparer et valider toutes les cartes avant de proposer Ajouter/Remplacer. Ne modifier les données existantes qu’après validation explicite, sauf pour la carte initiale vide. Garder le sélecteur de fichiers sans filtre `accept` pour les extensions personnalisées sur iPad ; contrôler les contenus JSON/Markdown/HTML dans le programme. Ajouter le champ optionnel `settings` aux sauvegardes individuelles et collections, sans changer leur schéma historique. Conserver le cadrage lors du changement de vue. Calculer les lignes par mots et réserver la largeur de texte sans compression flex.
+
+## Raccordement Projets 1.1.0
+
+Activer le mode intégré uniquement avec `?projets=1` dans une iframe. Fournir `window.EigrutelApp` et utiliser le canal `eigrutel-projets-v1` avec `appId: mindoscope`. Vérifier origine identique, fenêtre parent et identifiant de session. Le protocole utilise `ready`, `init`, `loaded`, `dirty`, `save`, `ack`, `clean`, `flush`, `save-error` et `error`.
+
+Transporter une collection native `map-collection` avec toutes les cartes et `settings`. Valider les données et les images avant affichage. Attendre un accusé de réception de la révision envoyée ; une réponse ancienne ne marque pas une modification plus récente comme enregistrée. `flush` attend la lecture d’un fichier ou d’une police en cours avant l’instantané.
+
+En mode intégré, ne jamais lire ni écrire IndexedDB ou localStorage de Mindoscope autonome. Projets possède la persistance. Réinitialiser uniquement les données Mindoscope du projet courant. Conserver le fonctionnement et les clés historiques en mode autonome. Le format JSON des collections reste en schéma 1.
